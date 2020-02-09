@@ -1,0 +1,215 @@
+---
+title: "Project - Factor-Hair"
+author: "Juan Esteban Venegas"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+### 1. Project Objectives
+
+The objective of the project is to build a regression model to predict customer satisfaction. The idea is to show a complete process that goes from data exploration to PCA/Factor analysis. The following steps will be performed throughout the project:
+
++ Perform exploratory data analysis on the dataset with the help of appropriate visualizations and identify observations/insights. 
++ Identify if there is evidence of multicollinearity in the dataset.
++ Perform simple linear regression for the dependent variable with every independent variable.
++ Perform PCA/Factor analysis by extracting 4 factors. 
++ Perform Multiple linear regression with customer satisfaction as dependent variables and the four factors as independent variables.
+
+### 2. Exploratory Data Analysis – Step by step approach
+
+#### 2.1 Environment Set up and Data Import
+
+##### 2.1.1 Call necessary Packages and Invoke Libraries
+
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(data.table)
+library(scales)
+library(spelling)
+library(corrplot)
+library(car)
+library(psych)
+library(broom)
+
+```
+
+##### 2.1.2 Set up working Directory
+
+```{r warning=FALSE, message=FALSE}
+setwd('C:/Users/Juan Esteban Venegas/Desktop/Machine Learning Learning/Greatlearning/Project_3_Hair')
+getwd()
+```
+
+##### 2.1.3 Import and Read the Dataset
+
+`r Hair <- fread(paste0(getwd(),'/Factor-Hair-Revised.csv'))`
+
+#### 2.2 Exploratory data analysis
+
+##### 2.2.1 Variable Identification – Inferences
+
+```{r}
+names(Hair)
+```
+
+There are 13 columns in the data set with 100 observations.
+
+```{r}
+str(Hair)
+```
+
+All variables are numeric except for ID which is an integer.
+
+```{r}
+head(Hair,4)
+```
+Data has the same scale and there are no missing values (rows with na = `r nrow(Hair[!complete.cases(Hair)])`). Due to this, there is no need for scaling or handling missing data.
+
+```{r}
+summary(Hair)
+```
+
+```{r}
+ggplot(melt(Hair, id.vars = 'ID', variable.name = 'Variable', value.name = 'Value'), aes(x = Variable, y = Value)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90))
+```
+
+#### 2.3 Univariate Analysis
+
+```{r warning=FALSE, message=FALSE , fig.width=14, fig.height=12}
+ggplot(melt(Hair, id.vars = 'ID', variable.name = 'Variable', value.name = 'Value'), aes(x = Value)) + geom_density() + facet_grid(.~Variable, scales = 'free') + labs(title = 'Density Plot for continuous variables', x = 'Value', y = 'Frequency') + theme(axis.text.x = element_text(angle = 90))
+```
+
+All variables seem to have a bell shape distribution similar to a normal distribution. It is clearer for variables such as ComprRes, Advertisement, ProdLine, SalesFlmage and DelSpeed.
+
+```{r warning=FALSE, message=FALSE}
+lm_univariate <- list()
+
+for(i in 2:(length(Hair)-1)){
+lm_univariate[[names(Hair[,..i])]] <- cbind( data.table('ind_variable' = paste0(names(Hair[,..i]),'~Satisfaction')),glance(lm(paste0(names(Hair[,..i]),'~Satisfaction'), Hair)))
+}
+
+lm_univariate <- rbindlist(lm_univariate)
+print(lm_univariate[,.(ind_variable, adj.r.squared, p.value)])
+```
+
+We run multiple lineal models for each independent variable vs Satisfaction and observe that for each case the adjusted r squared is quite low which means that each model doesn't explain much of the variation in the data. However, the model is significant given the low p values which for all cases except WaryClaim~Satisfaction are below 5%. 
+
+#### 2.4 Bi-Variate Analysis
+
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+cormatrix <- cor(Hair[, -c('ID')])
+corrplot.mixed(cormatrix, upper ='square', lower.col = 'black')
+```
+When looking at correlations between variables, we can see that the strongest correlation between dependent and independent variable is DelSpeed~Satisfaction but the relationship is not so strong. It is also worrying that overall correlation between each independent variable and the dependent variable is not so hith. In addition to this, it can me seen that there are high correlations between specific pairs of independent variables such as:
+
++ Ecom-SalesFlmage (0.79)
++ TechSup-WartyClaim (0.8)
++ CompRes-OrdBilling (0.76)
++ CompRes-DelSpeed (0.87)
+
+This might not enough since the correlation matrix only detects high pairwise correlations. However, it is possible that even when no pairwise correlations are high, several moderately correlated pairs may give rise to multi-collinearity.
+
+Because of this, it is also important to perform an initial simple linear regression for the dependent variable with all the available independent variables.
+
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+lm_I <- lm(Satisfaction ~., data = Hair[, -c('ID')])
+summary(lm_I)
+```
+The first thing that can be observed in the model is that the Adjusted R-squared is ok but not the best (0.7774) and in addition to this that the p_value is quite low. When looking at individual variables, we can see that only for Prod Qual, Ecom and SalesFImage have p values that are under 0.05 which means that it is unlikely we will observe a relationship between the predictor and response variables due to chance. This however, can't be said from the other variables. However, P values where low when looking at univariable models performed above.
+
+This suggests that there is collinearity within the independent variables that has to be addressed. 
+
+```{r warning=FALSE, message=FALSE}
+vif(lm_I)
+```
+
+In addition to this, we perform a Variance Inflation Factor or VIF test to the data. From the VIF test, we see that only DelSpeed has a value greater than 5 indicating it is substantially correlated with the other predictor variables. 
+
+### 3. Principal component or Factor Analysis
+
+#### 3.1 PCA
+
+PCA or principal component analysis is used to reduce the number of variables into specific components and it can also help with multicorrelation between independent variables. However, it is not useful when trying to measure unobserved (latent) relationships between the variables.
+
+Because of this, EFA is more suitable for this project. However, we will perform some steps of PCA to explain why it should not be used in this case.
+
+The first step is to run the barlett test `r cortest.bartlett(Hair[,c(2:13)])$p.value`. In this case, because the value is so low, it means that we can reject the null hypothesis which states that data dimension reduction is not possible.
+
+After this, we run a pca without rotation and make a scree plot:
+```{r warning=FALSE, message=FALSE}
+pc1 = psych::principal(Hair[,c(2:12)], nfactors = length(Hair[,c(2:12)]), rotate="none")
+print(pc1)
+plot(pc1$values, type = 'b')
+```
+
+If we follow Kaiser’s criterion and only take those points with SS Loadings > 1 then we would have 4 components. However, when running the model with 4 components we get that not all communalities are >.7. Because of this, we adjust the number of factors to 6 and add rotation:
+
+```{r warning=FALSE, message=FALSE}
+pc2 = psych::principal(Hair[,c(2:12)], nfactors = 6, rotate="varimax", scores = TRUE)
+print(pc2)
+```
+
+To check the model, we look for:
+
++ Less than half of residuals with absolute values > 0.05 : `r sum(abs(pc2$residual)>0.05) < length(pc2$residual)/2`
++ Model fit > .9 : `r pc2$fit > 0.9`
++ All communalities > .9: `r sum(pc2$communality>0.7) == length(pc2$communality)`
+
+If we do a correlation matrix on the PCA scores we can see that there is no correlation between the factors. This is because in PCA all the variance in the data is used to reach a solution. However, EFA is used for identifying and measuring variables that cannot be measured directly (i.e., latent variables or factors) which is what we require in this project. Because of this, we will perform a Factor Analysis. 
+
+```{r warning=FALSE, message=FALSE}
+corrplot.mixed(cor(pc2$scores), upper ='square', lower.col = 'black')
+```
+#### 3.1 EFA
+
+For factor analysis, we first need to define the number of factors to use. One way to do this is by using Psych package:
+
+```{r warning=FALSE, message=FALSE}
+Parallel <- fa.parallel(Hair[,c(2:12)], fm = 'minres', fa = 'fa')
+```
+Point inflection where the gap between simulated data and actual data tends to be minimum happens on 4 factors.
+
+We run the factor analysis with 4 factors and use oblimin as rotations since we believe that there is correlation in the factors.
+```{r warning=FALSE, message=FALSE}
+fourfactor <- fa(Hair[,c(2:12)],nfactors = 4,rotate = "oblimin",fm="minres")
+print(fourfactor)
+```
+Now we need to consider the loadings more than 0.5 and not loading on more than one factor:
+```{r warning=FALSE, message=FALSE}
+print(fourfactor$loadings,cutoff = 0.5)
+```
+
+From the above, we can see that no variables have become insignificant and that there is no double loading.
+
+```{r warning=FALSE, message=FALSE}
+fa.diagram(fourfactor)
+```
+
+The root mean square of residuals (RMSR) is 0.25 which is acceptable due to it's proximity to 0. RMSEA (root mean square error of approximation) index is 0.096 showing an ok model fit as it’s below 0.1 but higher than 0.05. Finally, the Tucker-Lewis Index (TLI) is 0.921 – an acceptable value considering it’s over 0.9.
+
+Looking at the 4 factors created, we will proceed to add them to the data and rename them
+
+```{r warning=FALSE, message=FALSE}
+Hair <- cbind(Hair, fourfactor$scores)
+setnames(Hair, c('MR1', 'MR2', 'MR3', 'MR4'), c('Customer_Service', 'Sales_Marketing', 'Tech_Support', 'Product'))
+head(Hair,6)
+```
+
+We then proceed to creating a lm model with the new factors
+
+```{r warning=FALSE, message=FALSE}
+lm_final <- lm(Satisfaction ~ Customer_Service + Sales_Marketing + Tech_Support + Product, Hair)
+summary(lm_final)
+```
+
+Adjusted R squeare is 0.6878 which is not great but it explains 68% of the variance in the data. In addition to this, the overall p.value of the model is low which implies that the null hypothesis can be rejected. When looking at the factors created, we can see that all factors but Tech Support have very low p.values which means that they can be used to predict Satisfaction. Tech Support on the other hand has a p.value of 0.4 which suggests that this variable could be dropped from the model.
+
+The below graph shows actuals vs predictions. As it can be seen, the model does a descent job in predicting satisfaction but the overall accuracy is not great.
+
+```{r warning=FALSE, message=FALSE}
+Hair$Prediction <- Predict(lm_final)
+ggplot(Hair, aes(x = ID, y = Satisfaction)) + geom_line() + geom_point() + geom_line(aes(x = ID, y = Prediction, col = 'red'))
+```
