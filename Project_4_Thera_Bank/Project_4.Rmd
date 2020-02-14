@@ -2,9 +2,9 @@
 title: "Project - Thera Bank"
 author: "Juan Esteban Venegas"
 output:
-  html_notebook: default
   html_document:
     df_print: paged
+  html_notebook: default
   pdf_document: default
 ---
 
@@ -12,13 +12,6 @@ output:
 
 The objective is to build a model for the marketing department of the Thera Bank to identify the potential customers who have a higher probability of purchasing a loan. This will increase the success ratio while at the same time reduce the cost of the campaign. 
 
-The following steps will be performed throughout the project:
-
-+ Perform exploratory data analysis on the dataset with the help of appropriate visualizations and identify observations/insights. 
-+ Identify if there is evidence of multicollinearity in the dataset.
-+ Perform simple linear regression for the dependent variable with every independent variable.
-+ Perform PCA/Factor analysis by extracting 4 factors. 
-+ Perform Multiple linear regression with customer satisfaction as dependent variables and the four factors as independent variables.
 
 ### 2. Exploratory Data Analysis – Step by step approach
 
@@ -27,82 +20,111 @@ The following steps will be performed throughout the project:
 ##### 2.1.1 Call necessary Packages and Invoke Libraries
 
 ```{r warning=FALSE, message=FALSE}
-pacman::p_load(ggplot2, data.table, scales, corrplot, car, psych, broom, readxl, glmnet, nbClust, cluster, caret)
+pacman::p_load(ggplot2, data.table, scales, corrplot, car, psych, broom, readxl, glmnet, NbClust, cluster, caret, factoextra, rpart.plot, rpart, randomForest)
 ```
 
 ##### 2.1.2 Set up working Directory
 
 ```{r warning=FALSE, message=FALSE}
-setwd('C:/Users/Juan Esteban Venegas/Desktop/Machine Learning Learning/Greatlearning/Project_4_Thera_Bank')
+setwd('C:/Users/Juan Esteban Venegas/Desktop/Machine Learning Learning/Greatlearning/Greatlearning_projects/Project_4_Thera_Bank')
 getwd()
 ```
 
 ##### 2.1.3 Import and Read the Dataset
 
+Dataset consists of a sheet with information and the data base. The sheet with information contains a brief description on each variable which is shown below:
 
 ```{r} Thera_Bank <- read_xlsx(paste0(getwd(),'/Thera Bank_Personal_Loan_Modelling-dataset-1.xlsx'), sheet = 'Bank_Personal_Loan_Modelling')```
-```{r}
+```{r warning=FALSE, message = FALSE}
 ReadMe <- as.data.table(read_xlsx(paste0(getwd(),'/Thera Bank_Personal_Loan_Modelling-dataset-1.xlsx'), sheet = 'ReadMe'))
 names(ReadMe) <- c('Variable', 'Description')
 ReadMe <- ReadMe[!is.na(Variable)]
+print(ReadMe)
 ```
+
+Some variables need to be transformed from numeric to factor. In addition to this, additional validations must be made to define future data preparation steps.
 
 ```{r}
 Thera_Bank <- as.data.table(read_xlsx(paste0(getwd(),'/Thera Bank_Personal_Loan_Modelling-dataset-1.xlsx'), sheet = 'Bank_Personal_Loan_Modelling'))
 names(Thera_Bank) <- gsub("\\.","",make.names(gsub("(?<=[\\s])\\s*|^\\s+|\\s+|\\.$", "_", names(Thera_Bank), perl=TRUE)))
-```
-
-#### 2.2 Exploratory data analysis
-
-##### 2.2.1 Variable Identification – Inferences
-
-```{r}
-names(Thera_Bank)
-```
-
-There are 14 columns in the data set with `r nrow(Thera_Bank)` observations.
-
-```{r}
 str(Thera_Bank)
 ```
-
-All variables are numeric but some need to be transformed to factor.
-```{r}
-Thera_Bank[,c('Education', 'Personal_Loan', 'Securities_Account', 'CD_Account', 'Online', 'CreditCard', 'ZIP_Code')] <- lapply(Thera_Bank[,c('Education', 'Personal_Loan', 'Securities_Account', 'CD_Account', 'Online', 'CreditCard', 'ZIP_Code')] , factor)
-```
-
-```{r}
-str(Thera_Bank)
-```
-
-```{r}
-dmy <- dummyVars(" ~ .", data = Thera_Bank)
-Thera_Bank <- data.frame(predict(dmy, newdata = Thera_Bank))
-head(Thera_Bank,4)
-```
-There are `r nrow(Thera_Bank[!complete.cases(Thera_Bank)])`) missing values. All of these correspond to Family_member information. Because the number of customers without this information is so low and the value is hard to properly inpute, these values will be excluded from the model for the time being.
 
 ```{r}
 summary(Thera_Bank)
-Thera_Bank_nonull <- Thera_Bank[!is.na(Family_members)]
 ```
 
+Variable Family_members has null values. Variable Experience_in_years has negative values. These two issues need to be addressed before creating the model.
+
+##### 2.1.4 Data Transformation
+
++ Variables to factor:
+```{r}
+Thera_Bank[,c('Education', 'Personal_Loan', 'Securities_Account', 'CD_Account', 'Online', 'CreditCard', 'ZIP_Code')] <- lapply(Thera_Bank[,c('Education', 'Personal_Loan', 'Securities_Account', 'CD_Account', 'Online', 'CreditCard', 'ZIP_Code')] , factor)
+```
++ Missing values:
+Before deciding what to do with missing values it is useful to view the distribution of numeric variables and if they have outliers.
+```{r, out.width='1\\linewidth', fig.asp=0.5, fig.ncol = 1, fig.cap="output",fig.align = "center"}
+numeric_variables <- names(which(sapply(Thera_Bank,is.numeric) & !(names(Thera_Bank) %in% c('ID', 'ZIP_Code'))))
+par(mfrow = c(1,length(numeric_variables)))
+outliers_list <- list()
+  for(i in 1:length(numeric_variables)){
+    plot <- boxplot(Thera_Bank[,numeric_variables[i], with = FALSE], ylab = numeric_variables[i])
+    outliers_list[[numeric_variables[i]]] <- Thera_Bank[eval(parse(text = numeric_variables[i])) %in% plot$out]
+    outliers_list[[numeric_variables[i]]]$outlier <- numeric_variables[i]
+    }
+```
+Family_members variable only has 4 possible values with a median of `r median(Thera_Bank$Family_members, na.rm = TRUE). 
 
 ```{r}
-par(mfrow = c(1,6))
-boxplot(Thera_Bank_nonull$Age_in_years, data = Thera_Bank_nonull, ylab = 'Age_in_years')
-boxplot(Thera_Bank_nonull$Experience_in_years, data = Thera_Bank_nonull, ylab = 'Experience_in_years')
-boxplot(Thera_Bank_nonull$Income_in_Kmonth, data = Thera_Bank_nonull, ylab = 'Income_in_Kmonth')
-boxplot(Thera_Bank_nonull$Family_members, data = Thera_Bank_nonull, ylab = 'Family_members')
-boxplot(Thera_Bank_nonull$CCAvg, data = Thera_Bank_nonull, ylab = 'CCAvg')
-boxplot(Thera_Bank_nonull$Mortgage, data = Thera_Bank_nonull, ylab = 'Mortgage')
-
+table(Thera_Bank$Family_members)
 ```
+Because of this, instead of removing the ID's with missing values it will be easier to input them using the median.
+```{r}
+Thera_Bank[, Family_members := ifelse(is.na(Family_members), median(Thera_Bank$Family_members, na.rm = TRUE), Family_members)]
+sum(is.na(Thera_Bank))
+```
+
++ Negative Experience: Beofre deciding what to do with negative Experience_in_years values it is important to understand this variable better.
+
+```{r}
+cor_matrix <- cor(Thera_Bank[,numeric_variables, with = FALSE])
+cor_matrix
+```
+
+```{r, out.width='1\\linewidth', fig.asp=0.5, fig.ncol = 1, fig.cap="output",fig.align = "center"}
+neg_exp_age <- unique(Thera_Bank[Experience_in_years <0, .(Age_in_years)][order(Age_in_years)])
+par(mfrow = c(1,nrow(neg_exp_age)))
+  for(i in 1:nrow(neg_exp_age)){
+    plot <- boxplot(Thera_Bank[Age_in_years == as.numeric(neg_exp_age[i,1])]$Experience_in_years, ylab = neg_exp_age[i,1])
+    }
+```
+Age and Experience have a very high positive correlation so it is important to see how age behaves with negative experience. Negative experience values have ages `r neg_exp_age`values.
+
+Observations with age <= 25 have negative median or 0 for experience which could mean that some of these people are studying and these negative years could be interpreted as years left to graduate. However, there is no information to deduce this so people under 25 with negative experience will be assign a 0 for their experience. 
+
+People with experience bellow 0 and age >= 26 will be assigned a median value for experience.
+
+```{r}
+median_experience <- Thera_Bank[,.(med_exp = median(Experience_in_years, na.rm = TRUE)), by = .(Age_in_years)]
+Thera_Bank <- median_experience[Thera_Bank, on = c('Age_in_years')]
+Thera_Bank <- Thera_Bank[, Experience_in_years := ifelse(Experience_in_years < 0 & Age_in_years <= 25, 0, ifelse(Experience_in_years <0, med_exp, Experience_in_years))][, med_exp := NULL]    
+```
+
++ One hot encoding: One hot encoding will be performed to be able to easily manage categorical variables.
+
+```{r}
+dmy <- dummyVars(" ~ .", data = Thera_Bank[,!c("ZIP_Code","Personal_Loan", "ID")])
+Thera_Bank_ohe <- data.frame(predict(dmy, newdata = Thera_Bank))
+Thera_Bank_ohe <- cbind(Thera_Bank[,.(Personal_Loan)], Thera_Bank_ohe)
+str(Thera_Bank_ohe)
+```
+
 
 #### 2.3 Univariate Analysis
 
 ```{r warning=FALSE, message=FALSE , fig.width=14, fig.height=12}
-ggplot(melt(Thera_Bank_nonull[,c(1:4,6,7,9)], id.vars = 'ID', variable.name = 'Variable', value.name = 'Value'), aes(x = Value)) + geom_density() + facet_grid(.~Variable, scales = 'free') + labs(title = 'Density Plot for continuous variables', x = 'Value', y = 'Frequency') + theme(axis.text.x = element_text(angle = 90))
+ggplot(melt(Thera_Bank[,c(numeric_variables,'ID'), with = FALSE][], id.vars = 'ID', variable.name = 'Variable', value.name = 'Value'), aes(x = Value)) + geom_density() + facet_grid(.~Variable, scales = 'free') + labs(title = 'Density Plot for continuous variables', x = 'Value', y = 'Frequency') + theme(axis.text.x = element_text(angle = 90))
 ```
 
 Age and experience seem to have similar distributions with the sample spread evenly. Income, CCAvg and Mortgage seem to be right skewed.
@@ -110,11 +132,75 @@ Age and experience seem to have similar distributions with the sample spread eve
 #### 2.4 Bi-Variate Analysis
 
 ```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
-cormatrix <- cor(Thera_Bank_nonull[,c(2:4,6,7,9)])
+cormatrix <- cor(Thera_Bank_ohe[,numeric_variables, with = FALSE])
 corrplot.mixed(cormatrix, upper ='square', lower.col = 'black')
 ```
 When looking at correlations between numeric variables, we can see that the strongest correlation between independent variables is Age and Experience. There is also a positive correlation between income and average spending on credit cards per month. 
 
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+table(Thera_Bank$Personal_Loan, Thera_Bank$Education)
+```
+
+Most of the people who took the loan have graduate or higher education.
+
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+table(Thera_Bank$Personal_Loan, Thera_Bank$Securities_Account)
+```
+
+Most of the people who took the loan don't have a securities account.
+
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+table(Thera_Bank$Personal_Loan, Thera_Bank$CD_Account)
+```
+
+Most of the people who took the loan don't have a CD Account.
+
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+table(Thera_Bank$Personal_Loan, Thera_Bank$Online)
+```
+
+Most of the people who took the loan use internet banking.
+
+```{r warning=FALSE, message=FALSE , fig.width=12, fig.height=12}
+table(Thera_Bank$Personal_Loan, Thera_Bank$CreditCard)
+```
+
+Most of the people who took the loan have credit cards.
+#### 2.5 EFA
+
+For factor analysis, we first need to define the number of factors to use. One way to do this is by using Psych package:
+
+```{r warning=FALSE, message=FALSE}
+Thera_Bank_fa <- scale(Thera_Bank_ohe[,numeric_variables, with = FALSE])
+Parallel <- fa.parallel(Thera_Bank_fa, fm = 'minres', fa = 'fa')
+```
+Point inflection where the gap between simulated data and actual data tends to be minimum happens on 2 factors.
+
+We run the factor analysis with 2 factors and use oblimin as rotations since we believe that there is correlation in the factors.
+```{r warning=FALSE, message=FALSE}
+FA <- fa(Thera_Bank_fa,nfactors = 2,rotate = "oblimin",fm="minres")
+print(FA)
+```
+Now we need to consider the loadings more than 0.5 and not loading on more than one factor:
+```{r warning=FALSE, message=FALSE}
+print(FA$loadings,cutoff = 0.5)
+```
+
+From the above, we can see that Family_members and Mortgage have become insignificant and that there is no double loading. We also see that Age in years and Experience in years can be grouped together since they have a very strong positive correlation. We also see that Income is correlated to CCAvg to a lesser extent but there is still a strong relationship between the two.
+
+```{r warning=FALSE, message=FALSE}
+fa.diagram(FA)
+```
+
+The root mean square of residuals (RMSR) is 0.01 which is acceptable since it's very close to 0. RMSEA (root mean square error of approximation) index is 0.037 showing an ok model fit as it’s below 0.1 and cloase to 0.05. Finally, the Tucker-Lewis Index (TLI) is 0.996 – an acceptable value considering it’s over 0.9.
+
+Looking at the 2 factors created, we will proceed to add them to the data and rename them
+
+```{r warning=FALSE, message=FALSE}
+Thera_Bank_ohe <- cbind(Thera_Bank_ohe, FA$scores)
+setnames(Thera_Bank_ohe, c('MR1', 'MR2') ,c('Exp', 'P_Finance'))
+head(Thera_Bank_ohe,2)
+```
 
 ### 3. Clustering
 
@@ -122,51 +208,210 @@ When looking at correlations between numeric variables, we can see that the stro
 
 ```{r}
 set.seed(1000) 
-Thera_Bank_nonull_scaled <- scale(Thera_Bank_nonull[,c(2:4,6,7,9)])
-nc <- NbClust(Thera_Bank_nonull_scaled, min.nc=2, max.nc=5, method="kmeans")
+Thera_Bank_scaled <- scale(Thera_Bank_ohe[,c(7,8,9,11,12,13,14,15,16,17,18,19,20)])
+
+fviz_nbclust(Thera_Bank_scaled, kmeans, method='silhouette')
+
 ```
 
-Kmeans Clustering works with numeric data because it uses distance between observations to determine if they are similar or not. Because of this, the first step is to select numeric data from the table and scale it. We then run NbClust to determine what the best number of clusters is for this data set.
+Kmeans Clustering works with numeric data because it uses distance between observations to determine if they are similar or not. Because of this, the first step is to select numeric data from the table and scale it. We then run different centers to determine what the best number of clusters is for this data set. function above is used to run the silhouette method to determine the ideal number of clusters. 
 
 
 ```{r warning=FALSE, message=FALSE}
-Kmeans_clusters <- kmeans(Thera_Bank_nonull_scaled, centers = 3, nstart = 5)
-clusplot(Thera_Bank_nonull_scaled, Kmeans_clusters$cluster, color=TRUE, shade=FALSE, labels = 0, col.p = Kmeans_clusters$cluster, stand = TRUE)
+Kmeans_clusters <- kmeans(Thera_Bank_scaled, centers = 10, nstart = 5)
+clusplot(Thera_Bank_scaled, Kmeans_clusters$cluster, color=TRUE, shade=FALSE, labels = 0, col.p = Kmeans_clusters$cluster, stand = TRUE)
 
 ```
+
+We assign the clusters to the data base and observe that the biggest cluster has 750 customers and the smallest has 302.
+
+```{r warning=FALSE, message=FALSE}
+Thera_Bank$cluster <- factor(Kmeans_clusters$cluster)
+table(Thera_Bank$cluster)
+table(Thera_Bank$cluster, Thera_Bank$Personal_Loan)
+```
+
+#### 4 CART
+
+Before running CART we will first split the dataset into training and testing sets. 
+
+```{r warning=FALSE, message=FALSE}
+set.seed(1000)
+Thera_Bank_model <- Thera_Bank[,!c("ID","ZIP_Code")]
+train_sel <- sample(x = 1:nrow(Thera_Bank_model), size = round(nrow(Thera_Bank_model)*.7))
+train <- Thera_Bank_model[train_sel]
+test <- Thera_Bank_model[!train_sel]
+```
+
+We then proceed to run an initial CART model:
+
+```{r warning=FALSE, message=FALSE}
+set.seed(1000)
+tree <- rpart(formula = Personal_Loan ~ ., data = train, method = "class", cp=0, minbucket=3)
+tree
+rpart.plot(tree)
+```
+
+With the above tree we then obtain the complexity table to start prunning.
+```{r}
+printcp(tree)
+plotcp(tree)
+```
+
+The above tree is then pruned. For prunning the tree, we need to define a complexity parameter which is the minimum improvement in the model needed at each node.  Using a cost complexity threshold of 0.011 given by the graph above we then proceed to prune the tree.
+
+```{r}
+ptree = prune(tree, cp= 0.011 ,"CP")
+printcp(ptree)
+ptree
+rpart.plot(ptree)
+```
+
+It seems like the CART model is giving importance to the Income information as well as Education, Family member, CCAvg and finally the clusters created in above steps. 
+
+The next step is to test the model on train and test data:
+
+```{r}
+train$prediction = predict(ptree, newdata= train, type="class")
+tbl <- table(train$Personal_Loan, train$prediction)
+print(tbl)
+print((tbl[1,2]+tbl[2,1])/nrow(train))
+print((tbl[1,1]+tbl[2,2])/(nrow(train)))
+print((tbl[2,2])/(tbl[2,1]+tbl[2,2]))
+```
+
+Model seems to perform reasonably well on predicting people who said yes to the loan (True positives). Out of 342 people in the train dataset who said yes to the loan, the model predicted 303 correctly. The model also did a good job in predicting people who chose not to take the offer (True negatives), out of 3158 customers who said no, the model was able to predict 3149.
+
+Error rate for the train data is 1.3%
+Accuracy is 98.6%
+Presicion is 88.5%
 
 
 ```{r warning=FALSE, message=FALSE}
+test$prediction = predict(ptree, newdata= test, type="class")
+
+tbl <- table(test$Personal_Loan, test$prediction)
+print(tbl)
+print((tbl[1,2]+tbl[2,1])/nrow(test))
+print((tbl[1,1]+tbl[2,2])/(nrow(test)))
+print((tbl[2,2])/(tbl[2,1]+tbl[2,2]))
 ```
 
+Test model also seems to yield good results. Out of 138 people in the test dataset who said yes to the loan, the model predicted 121 correctly. The model also did a good job in predicting people who chose not to take the offer, out of 1362 customers who said no, the model was able to predict 1357
+
+Error rate for the train data is 1.5%
+Accuracy is 98.5%
+Presicion is 87.7%
+
+#### 4 Random Forest
+
+The above CART results are encouraging and it means that we are in the right track to be able to identify future customers that will be more likely to accept a loan offer given the past experience with previous campaigns. 
+
+To improve the robustness of the model, the next step is to train a random forest model which is similar to creating a model from several independent "tree" models until we have a forest. This way, we make the model stronger by trining it with different iterations of data and prepare it so it behaves better when unseen data is fed into the model.
 
 ```{r warning=FALSE, message=FALSE}
+train$prediction <- NULL
+test$prediction <- NULL
+
+set.seed(1000)
+rndFor = randomForest(Personal_Loan ~ ., data = train, ntree = round(0.2*nrow(train)), mtry = round(sqrt(length(train)-1)), nodesize = 10,importance=TRUE)
+print(rndFor)
 ```
 
-#### 3.1 EFA
+We first start by creating a model with temporary parameters. For ntree we use 20% of the observations in the train dataset and for the mtry we use sqrt of the number of variables.
 
+The below graph shows the evolution of the error rate for out of the bag sampling, error 1 and 0 depending on the number of trees that our model has. According to the graph, there is a potential gain when increasing the number of trees for reducing the error when predicting people that will opt for the loan (1). 
+
+```{r}
+head(rndFor$err.rate,100)
+plot(rndFor, main="")
+legend("topright", c("OOB", "0", "1"), text.col=1:6, lty=1:3, col=1:3)
+title(main="Error Rates Random Forest train")
+```
+
+When listing the importance of the variables in the model, it appears as if Income has the biggest mean decreace in accuracy which makes it more important for the model followed by CCAvg, the cluster variable created and Education.
+
+```{r}
+rndFor$importance
+```
+
+Next step is to "tune" the Random Forest by trying different m values. 
+
+```{r}
+set.seed(1000)
+tRndFor = tuneRF(x = train[,!("Personal_Loan")], 
+              y=train$Personal_Loan,
+              mtryStart = 3, 
+              ntreeTry = 501, 
+              stepFactor = 1.5, 
+              improve = 0.0001, 
+              trace=TRUE, 
+              plot = TRUE,
+              doBest = TRUE,
+              nodesize = 10, 
+              importance=TRUE
+)
+importance(tRndFor)
+
+```
 
 ```{r warning=FALSE, message=FALSE}
+print(tRndFor)
 ```
 
-```{r warning=FALSE, message=FALSE}
+Model predictions on the training data seem very good with only 0 people marked as not taking the loan that eventually took it. This yiels a very low error and high precision of 99%.
+
+```{r}
+## Scoring syntax
+train$predict.class = predict(tRndFor, train, type="class")
+train$prob1 = predict(tRndFor, train, type="prob")[,"1"]
+
+tbl <- table(train$Personal_Loan, train$predict.class)
+print(tbl)
+print((tbl[1,2]+tbl[2,1])/nrow(train))
+print((tbl[1,1]+tbl[2,2])/(nrow(train)))
+print((tbl[2,2])/(tbl[2,1]+tbl[2,2]))
 ```
 
-```{r warning=FALSE, message=FALSE}
+```{r}
+## Scoring syntax
+test$predict.class = predict(tRndFor, test, type="class")
+test$prob1 = predict(tRndFor, test, type="prob")[,"1"]
+tbl <- table(test$Personal_Loan, test$predict.class)
+print(tbl)
+print((tbl[1,2]+tbl[2,1])/nrow(test))
+print((tbl[1,1]+tbl[2,2])/(nrow(test)))
+print((tbl[2,2])/(tbl[2,1]+tbl[2,2]))
+```
+Test data set also yields good results and are in line with the train data which means there is no overfitting.
+
+The above model will save the marketing department time and money in reaching customers who won't take the loan (1353). In the test data example at the risk of loosing the opportunity to give 9 loans which is not significant considering the savings that can be achieved by doing a more targeted marketing campaign.
+
+Overall, the model proves to be useful in clearly identifying those customers who will not acquire the loan and it also does a good job in selecting customers who will acquire it.
+
+I would look for two particular customer profiles described below:
+
+```{r}
+## Scoring syntax
+cust_1 <- Thera_Bank[Income_in_Kmonth > 117 & Education != 1]
+summary(cust_1[,.(Income_in_Kmonth, CCAvg)])
 ```
 
++cust_1 : Customers with annual income grerater than 117,000 and who have graduate degree or higher.
 
-```{r warning=FALSE, message=FALSE}
+```{r}
+## Scoring syntax
+cust_2 <- Thera_Bank[Income_in_Kmonth > 114 & Education == 1 & Family_members >3]
+summary(cust_2[,.(Income_in_Kmonth, CCAvg, Education, Family_members)])
 ```
 
+Similar to customer 1. The difference is that these customers have an undergraduate degree and families with at least 4 members.
 
-```{r warning=FALSE, message=FALSE}
+```{r}
+## Scoring syntax
+cust_3 <- Thera_Bank[Income_in_Kmonth <= 114 & CCAvg >= 3 & !(cluster %in% c(2,4:10))]
+summary(cust_2[,.(Income_in_Kmonth, CCAvg, Education, Family_members)])
 ```
+Customers with income less than or equal to 114,000 per year but that have an average credit card spending per month greater than or equal to 3,000 and that fall in the clusters 1 and 3.
 
-
-```{r warning=FALSE, message=FALSE}
-```
-
-
-```{r warning=FALSE, message=FALSE}
-```
+There is another potential group of customers but they don't seem to be that many in the sample set. My initial recommendation would be to target customer groups 1 and 2 highlighted above.
